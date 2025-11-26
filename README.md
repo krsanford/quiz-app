@@ -43,13 +43,21 @@ Install dependencies:
 npm install
 ```
 
-Now, you can start a local web server by running:
+Now, start the backend (Express + Socket.IO) and the web app in two terminals:
+
+```
+npm run server
+```
+
+and
 
 ```
 npm start
 ```
 
 And then open http://localhost:3000 to view it in the browser.
+
+> Multiplayer uses websockets. By default the frontend points to `http://localhost:4000`. If you deploy the backend elsewhere, set `REACT_APP_SOCKET_URL` to that URL before running `npm start` or building.
 
 #### Available Scripts
 
