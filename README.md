@@ -43,7 +43,34 @@ Install dependencies:
 npm install
 ```
 
-Now, start the backend (Express + Socket.IO) and the web app in two terminals:
+## One-click deploy to Azure
+
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fkarlsanford%2Fquiz-app%2Fmain%2Finfra%2Fmain.bicep)
+
+Click the button and the Azure Portal will prompt for:
+- Resource group & region
+- `namePrefix` (used for the Web App and storage account)
+- Optional plan SKU (default Basic B1)
+
+After the portal completes:
+1) Copy the `backendUrl` and `staticWebsiteUrl` from the deployment outputs.
+2) Build with `REACT_APP_SOCKET_URL=<backendUrl> npm run build`.
+3) Upload the `build/` contents to the static website container of the created storage account (you can use the portal’s “Static website” blade or `az storage blob upload-batch`).
+4) Zip deploy backend if you make changes (`zip -r ../backend.zip . -x node_modules/\* build/\*` then use the Web App “Deployment Center” to upload).
+
+### Deploy via GitHub Actions (one-click run)
+[![Run Deploy Workflow](https://img.shields.io/badge/Deploy%20via-GitHub%20Actions-blue?logo=githubactions)](../../actions/workflows/deploy-azure.yml)
+
+- Click the badge → “Run workflow”. It will:
+  - Deploy infra (Bicep)
+  - Build frontend with the backend URL
+  - Zip-deploy backend
+  - Upload static build
+- Requires one-time secret `AZURE_CREDENTIALS` (service principal JSON with access to your subscription). After that, it’s a button click.
+
+## Local development
+
+Start the backend (Express + Socket.IO) and the web app in two terminals:
 
 ```
 npm run server
@@ -55,7 +82,7 @@ and
 npm start
 ```
 
-And then open http://localhost:3000 to view it in the browser.
+Then open http://localhost:3000.
 
 > Multiplayer uses websockets. By default the frontend points to `http://localhost:4000`. If you deploy the backend elsewhere, set `REACT_APP_SOCKET_URL` to that URL before running `npm start` or building.
 

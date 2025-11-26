@@ -1,0 +1,104 @@
+name: Deploy to Azure
+
+on:
+  workflow_dispatch:
+    inputs:
+      resourceGroup:
+        description: 'Azure Resource Group'
+        required: true
+        default: 'quizapp-rg'
+      location:
+        description: 'Azure region (e.g., eastus, westeurope)'
+        required: true
+        default: 'eastus'
+      namePrefix:
+        description: 'Name prefix for Web App and storage (lowercase/letters/numbers)'
+        required: true
+        default: 'quizapp'
+      planSku:
+        description: 'App Service plan SKU (B1, S1, etc.)'
+        required: true
+        default: 'B1'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Azure login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy infra (Bicep)
+        uses: azure/cli@v1
+        with:
+          inlineScript: |
+            RG=${{ inputs.resourceGroup }}
+            LOC=${{ inputs.location }}
+            PREFIX=${{ inputs.namePrefix }}
+            SKU=${{ inputs.planSku }}
+            DEPLOY_NAME="quizapp-${GITHUB_RUN_ID}"
+
+            az group create -n "$RG" -l "$LOC"
+            az deployment group create \
+              -g "$RG" \
+              -n "$DEPLOY_NAME" \
+              --template-file infra/main.bicep \
+              --parameters namePrefix="$PREFIX" planSku="$SKU"
+
+            BACKEND_URL=$(az deployment group show -g "$RG" -n "$DEPLOY_NAME" --query "properties.outputs.backendUrl.value" -o tsv)
+            STORAGE=$(az deployment group show -g "$RG" -n "$DEPLOY_NAME" --query "properties.outputs.storageAccountOut.value" -o tsv)
+
+            echo "BACKEND_URL=$BACKEND_URL" >> "$GITHUB_ENV"
+            echo "STORAGE_NAME=$STORAGE" >> "$GITHUB_ENV"
+            echo "APP_NAME=${PREFIX}-api" >> "$GITHUB_ENV"
+            echo "DEPLOY_NAME=$DEPLOY_NAME" >> "$GITHUB_ENV"
+
+      - name: Build frontend (with socket URL)
+        run: |
+          REACT_APP_SOCKET_URL="${BACKEND_URL}" npm run build
+
+      - name: Zip backend
+        run: zip -r backend.zip . -x "node_modules/*" "build/*" ".git/*"
+
+      - name: Deploy backend to Web App
+        uses: azure/cli@v1
+        with:
+          inlineScript: |
+            az webapp deploy \
+              --resource-group ${{ inputs.resourceGroup }} \
+              --name "$APP_NAME" \
+              --src-path backend.zip \
+              --type zip
+
+      - name: Upload frontend to static website
+        uses: azure/cli@v1
+        with:
+          inlineScript: |
+            KEY=$(az storage account keys list -g ${{ inputs.resourceGroup }} -n "$STORAGE_NAME" --query "[0].value" -o tsv)
+            az storage blob upload-batch \
+              -s build \
+              -d '$web' \
+              --account-name "$STORAGE_NAME" \
+              --account-key "$KEY" \
+              --overwrite
+
+      - name: Show outputs
+        run: |
+          echo "Backend: $BACKEND_URL"
+          echo "Static site: $(az storage account show -g ${{ inputs.resourceGroup }} -n "$STORAGE_NAME" --query "primaryEndpoints.web" -o tsv)"
